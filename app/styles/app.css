@@ -1,0 +1,139 @@
+.app-shell {
+  padding: 16px 20px 32px;
+  max-width: 960px;
+}
+
+.app-nav {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e3e3e3;
+}
+
+.app-nav a {
+  color: #005bd3;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.app-nav a:hover {
+  text-decoration: underline;
+}
+
+.page-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 16px;
+}
+
+.section {
+  background: #fff;
+  border: 1px solid #e3e3e3;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.section h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+
+.section p {
+  margin: 0 0 8px;
+  color: #616161;
+  line-height: 1.5;
+}
+
+.field {
+  display: block;
+  margin-bottom: 12px;
+}
+
+.field label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+
+.field input[type="text"],
+.field input[type="password"],
+.field select {
+  width: 100%;
+  max-width: 420px;
+  padding: 8px 10px;
+  border: 1px solid #c9cccf;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.checkbox-row {
+  display: block;
+  margin-bottom: 8px;
+}
+
+.btn-primary {
+  background: #008060;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.banner-warning {
+  background: #fff5ea;
+  border: 1px solid #ffc96b;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.banner-error {
+  background: #fee;
+  border: 1px solid #f99;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.banner-success {
+  background: #e8f5ef;
+  border: 1px solid #95d4b6;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.job-card {
+  border: 1px solid #e3e3e3;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 8px;
+}
+
+.job-card a {
+  color: #005bd3;
+  font-weight: 500;
+}
+
+.log-box {
+  background: #f6f6f7;
+  border: 1px solid #e3e3e3;
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  max-height: 320px;
+  overflow: auto;
+}

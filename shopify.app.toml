@@ -1,0 +1,32 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "b21ef4cb2a5e22451697e049734fb3f3"
+name = "multilingual app"
+# 开发时 CLI 会自动替换为 trycloudflare 地址；勿用 example.com
+application_url = "https://shopify.dev/apps/default-app-home"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+include_config_on_deploy = true
+
+[webhooks]
+api_version = "2025-10"
+
+  [[webhooks.subscriptions]]
+  topics = ["app/scopes_update"]
+  uri = "/webhooks/app/scopes_update"
+
+  [[webhooks.subscriptions]]
+  topics = ["app/uninstalled"]
+  uri = "/webhooks/app/uninstalled"
+
+[access_scopes]
+scopes = "read_translations,write_translations,read_products,read_content,read_locales,write_locales,read_online_store_navigation,read_themes"
+
+[auth]
+redirect_urls = [
+  "https://shopify.dev/apps/default-app-home/auth/callback",
+  "https://shopify.dev/apps/default-app-home/auth/shopify/callback",
+  "https://shopify.dev/apps/default-app-home/api/auth/callback"
+]

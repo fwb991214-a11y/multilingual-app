@@ -1,0 +1,24 @@
+# 本地 --use-localhost 专用配置（不含 webhooks，Shopify 不接受 localhost webhook URL）
+# 用法: shopify app dev --use-localhost --config shopify.app.local.toml
+
+client_id = "b21ef4cb2a5e22451697e049734fb3f3"
+name = "multilingual app"
+application_url = "https://shopify.dev/apps/default-app-home"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = true
+include_config_on_deploy = false
+
+[webhooks]
+api_version = "2025-10"
+
+[access_scopes]
+scopes = "read_translations,write_translations,read_products,read_content,read_locales,write_locales,read_online_store_navigation,read_themes"
+
+[auth]
+redirect_urls = [
+  "https://shopify.dev/apps/default-app-home/auth/callback",
+  "https://shopify.dev/apps/default-app-home/auth/shopify/callback",
+  "https://shopify.dev/apps/default-app-home/api/auth/callback"
+]

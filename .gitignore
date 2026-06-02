@@ -1,0 +1,13 @@
+node_modules
+.DS_Store
+/.cache
+/build
+/app/build
+/public/build/
+/prisma/dev.sqlite
+/prisma/dev.sqlite-journal
+.env
+.env.*
+.shopify/*
+.shopify.lock
+.react-router/

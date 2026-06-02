@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 生产部署请设置环境变量 DATABASE_URL（PostgreSQL）
+// 本地仅 dev 且仍用 SQLite 时，可设 DATABASE_URL="file:./prisma/dev.sqlite" 并改 provider 为 sqlite
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+model ShopSettings {
+  id           String   @id @default(cuid())
+  shop         String   @unique
+  provider     String   @default("mock")
+  openaiApiKey String?
+  openaiModel  String   @default("gpt-4o-mini")
+  deeplApiKey  String?
+  sourceLocale String   @default("en")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model TranslationJob {
+  id              String   @id @default(cuid())
+  shop            String
+  status          String   @default("pending")
+  resourceTypes   String
+  targetLocales   String
+  mode            String   @default("missing_only")
+  totalItems      Int      @default(0)
+  processedItems  Int      @default(0)
+  translatedItems Int      @default(0)
+  skippedItems    Int      @default(0)
+  failedItems     Int      @default(0)
+  errorMessage    String?
+  logs            String   @default("[]")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([shop, createdAt])
+}

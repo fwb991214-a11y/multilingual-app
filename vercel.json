@@ -1,7 +1,6 @@
 {
   "framework": "react-router",
   "buildCommand": "npm run build",
-  "installCommand": "npm install",
-  "outputDirectory": "build/client"
+  "installCommand": "npm install"
 }
 

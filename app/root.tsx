@@ -2,6 +2,8 @@ import type { HeadersFunction } from "react-router";
 import { Links, Meta, Outlet, Scripts, ScrollRestoration, useRouteError } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 
+export const config = { runtime: "nodejs" } as const;
+
 export default function App() {
   return (
     <html lang="zh-CN">

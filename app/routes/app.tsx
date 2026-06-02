@@ -5,7 +5,7 @@ import { AppProvider } from "@shopify/shopify-app-react-router/react";
 import { authenticate } from "../shopify.server";
 import appStyles from "../styles/app.css?url";
 
-export const config = { runtime: "nodejs" } as const;
+export const config = { runtime: "nodejs" };
 
 export const links = () => [{ rel: "stylesheet", href: appStyles }];
 

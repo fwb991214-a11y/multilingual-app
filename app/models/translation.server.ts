@@ -70,7 +70,27 @@ export async function getTranslationJob(jobId: string, shop: string) {
   });
 }
 
+const STALE_RUNNING_MS = 30 * 60 * 1000;
+
+/** 将长时间无更新的 running 任务标为失败，避免 Vercel/本地中断后永远显示「进行中」。 */
+export async function markStaleRunningJobs(shop: string) {
+  const cutoff = new Date(Date.now() - STALE_RUNNING_MS);
+  await prisma.translationJob.updateMany({
+    where: {
+      shop,
+      status: "running",
+      updatedAt: { lt: cutoff },
+    },
+    data: {
+      status: "failed",
+      errorMessage:
+        "任务超时或后台进程中断（部署到 Vercel 时需保持 waitUntil；本地需保持 dev 终端运行）",
+    },
+  });
+}
+
 export async function listTranslationJobs(shop: string, limit = 20) {
+  await markStaleRunningJobs(shop);
   return prisma.translationJob.findMany({
     where: { shop },
     orderBy: { createdAt: "desc" },

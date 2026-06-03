@@ -78,8 +78,20 @@ export async function processTranslationJob(jobId: string, shop: string) {
     return;
   }
 
-  if (job.status === "running" || job.status === "completed") {
+  if (job.status === "completed") {
     return;
+  }
+
+  if (job.status === "running") {
+    const staleMs = 30 * 60 * 1000;
+    if (Date.now() - job.updatedAt.getTime() < staleMs) {
+      return;
+    }
+    await updateJobProgress(jobId, {
+      status: "failed",
+      errorMessage: "任务已超时，正在重新执行",
+    });
+    await appendJobLog(jobId, "检测到陈旧 running 状态，重新执行");
   }
 
   const resourceTypes = JSON.parse(job.resourceTypes) as TranslatableResourceType[];
@@ -127,6 +139,14 @@ export async function processTranslationJob(jobId: string, shop: string) {
           cursor,
           PAGE_SIZE,
         );
+
+        await updateJobProgress(jobId, {
+          processedItems,
+          translatedItems,
+          skippedItems,
+          failedItems,
+          totalItems,
+        });
 
         for (const edge of page.edges) {
           const resourceId = edge.node.resourceId;
@@ -279,5 +299,21 @@ export async function processTranslationJob(jobId: string, shop: string) {
 }
 
 export function startTranslationJob(jobId: string, shop: string) {
-  void processTranslationJob(jobId, shop);
+  const work = processTranslationJob(jobId, shop).catch(async (error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    await updateJobProgress(jobId, {
+      status: "failed",
+      errorMessage: message,
+    });
+    await appendJobLog(jobId, `任务异常退出: ${message}`);
+  });
+
+  if (process.env.VERCEL) {
+    void import("@vercel/functions").then(({ waitUntil }) => {
+      waitUntil(work);
+    });
+    return;
+  }
+
+  void work;
 }

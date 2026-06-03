@@ -81,7 +81,12 @@ export async function markStaleRunningJobs(shop: string) {
   });
 
   for (const job of runningJobs) {
-    if (job.totalItems > 0 && job.processedItems >= job.totalItems) {
+    // 进度条满只表示「已扫描」完，已译/跳过仍会继续增加；仅当长时间无更新才自动收尾
+    if (
+      job.totalItems > 0 &&
+      job.processedItems >= job.totalItems &&
+      job.updatedAt < cutoff
+    ) {
       await prisma.translationJob.update({
         where: { id: job.id },
         data: {
@@ -91,7 +96,7 @@ export async function markStaleRunningJobs(shop: string) {
       });
       const logs = parseJsonArray<string>(job.logs);
       if (!logs.some((line) => line.includes("任务完成"))) {
-        logs.push(`${new Date().toISOString()} 任务完成（进度已满，自动收尾）`);
+        logs.push(`${new Date().toISOString()} 任务完成（进度已满且已停止更新，自动收尾）`);
         await prisma.translationJob.update({
           where: { id: job.id },
           data: { logs: JSON.stringify(logs.slice(-100)) },
@@ -180,6 +185,16 @@ export async function updateJobProgress(
     errorMessage: string | null;
   }>,
 ) {
+  if (!data.status) {
+    const existing = await prisma.translationJob.findUnique({
+      where: { id: jobId },
+      select: { status: true },
+    });
+    if (existing?.status === "completed") {
+      return;
+    }
+  }
+
   await prisma.translationJob.update({
     where: { id: jobId },
     data,

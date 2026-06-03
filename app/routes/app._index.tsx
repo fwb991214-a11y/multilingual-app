@@ -16,7 +16,11 @@ import {
   toShopSettingsRecord,
 } from "../models/translation.server";
 import { fetchShopLocales } from "../services/translation/graphql.server";
-import { startTranslationJob } from "../services/translation/runner.server";
+import { waitUntil } from "@vercel/functions";
+import {
+  runTranslationJobSafely,
+  startTranslationJob,
+} from "../services/translation/runner.server";
 import { getProviderLabel } from "../services/translation/labels";
 import {
   RESOURCE_TYPE_LABELS,
@@ -76,7 +80,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     mode,
   });
 
-  startTranslationJob(job.id, session.shop);
+  if (process.env.VERCEL) {
+    waitUntil(runTranslationJobSafely(job.id, session.shop));
+  } else {
+    startTranslationJob(job.id, session.shop);
+  }
 
   return { ok: true, jobId: job.id };
 };

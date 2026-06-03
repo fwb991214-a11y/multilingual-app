@@ -72,21 +72,45 @@ export async function getTranslationJob(jobId: string, shop: string) {
 
 const STALE_RUNNING_MS = 30 * 60 * 1000;
 
-/** 将长时间无更新的 running 任务标为失败，避免 Vercel/本地中断后永远显示「进行中」。 */
+/** 将长时间无更新的 running 任务标为失败；进度已满但未收尾的标为已完成。 */
 export async function markStaleRunningJobs(shop: string) {
   const cutoff = new Date(Date.now() - STALE_RUNNING_MS);
-  await prisma.translationJob.updateMany({
-    where: {
-      shop,
-      status: "running",
-      updatedAt: { lt: cutoff },
-    },
-    data: {
-      status: "failed",
-      errorMessage:
-        "任务超时或后台进程中断（部署到 Vercel 时需保持 waitUntil；本地需保持 dev 终端运行）",
-    },
+
+  const runningJobs = await prisma.translationJob.findMany({
+    where: { shop, status: "running" },
   });
+
+  for (const job of runningJobs) {
+    if (job.totalItems > 0 && job.processedItems >= job.totalItems) {
+      await prisma.translationJob.update({
+        where: { id: job.id },
+        data: {
+          status: "completed",
+          errorMessage: null,
+        },
+      });
+      const logs = parseJsonArray<string>(job.logs);
+      if (!logs.some((line) => line.includes("任务完成"))) {
+        logs.push(`${new Date().toISOString()} 任务完成（进度已满，自动收尾）`);
+        await prisma.translationJob.update({
+          where: { id: job.id },
+          data: { logs: JSON.stringify(logs.slice(-100)) },
+        });
+      }
+      continue;
+    }
+
+    if (job.updatedAt < cutoff) {
+      await prisma.translationJob.update({
+        where: { id: job.id },
+        data: {
+          status: "failed",
+          errorMessage:
+            "任务超时或后台进程中断（Vercel 函数 300s 超时；请重新部署最新代码）",
+        },
+      });
+    }
+  }
 }
 
 export async function listTranslationJobs(shop: string, limit = 20) {

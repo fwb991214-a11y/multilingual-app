@@ -298,8 +298,9 @@ export async function processTranslationJob(jobId: string, shop: string) {
   }
 }
 
-export function startTranslationJob(jobId: string, shop: string) {
-  const work = processTranslationJob(jobId, shop).catch(async (error) => {
+/** 在后台执行翻译；Vercel 上必须由 action 里 waitUntil() 包装，不能在此处立即启动 Promise。 */
+export function runTranslationJobSafely(jobId: string, shop: string) {
+  return processTranslationJob(jobId, shop).catch(async (error) => {
     const message = error instanceof Error ? error.message : String(error);
     await updateJobProgress(jobId, {
       status: "failed",
@@ -307,13 +308,9 @@ export function startTranslationJob(jobId: string, shop: string) {
     });
     await appendJobLog(jobId, `任务异常退出: ${message}`);
   });
+}
 
-  if (process.env.VERCEL) {
-    void import("@vercel/functions").then(({ waitUntil }) => {
-      waitUntil(work);
-    });
-    return;
-  }
-
-  void work;
+/** 本地 dev：后台 fire-and-forget */
+export function startTranslationJob(jobId: string, shop: string) {
+  void runTranslationJobSafely(jobId, shop);
 }

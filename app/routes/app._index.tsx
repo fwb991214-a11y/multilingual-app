@@ -162,7 +162,6 @@ export default function TranslateDashboard() {
                   type="checkbox"
                   name="targetLocales"
                   value={locale}
-                  defaultChecked
                 />{" "}
                 {locale}
               </label>

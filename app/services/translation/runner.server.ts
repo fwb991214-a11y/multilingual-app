@@ -2,9 +2,11 @@ import { unauthenticated } from "../../shopify.server";
 import {
   appendJobLog,
   getTranslationJob,
+  setJobActivity,
   toShopSettingsRecord,
   updateJobProgress,
 } from "../../models/translation.server";
+import { getProviderLabel } from "./labels";
 import prisma from "../../db.server";
 import {
   fetchResourceWithTranslations,
@@ -22,6 +24,7 @@ import {
   type ShopSettingsRecord,
   type TranslatableContentItem,
   type TranslatableResourceType,
+  RESOURCE_TYPE_LABELS,
   type TranslationInputPayload,
   type TranslationMode,
 } from "./types";
@@ -29,6 +32,12 @@ import {
 const PAGE_SIZE = 20;
 const REGISTER_BATCH_SIZE = 25;
 const TRANSLATION_DELAY_MS = 120;
+const ACTIVITY_THROTTLE_MS = 2500;
+
+function shortResourceId(resourceId: string) {
+  const parts = resourceId.split("/");
+  return parts.length >= 2 ? `${parts.at(-2)}/${parts.at(-1)}` : resourceId;
+}
 
 function shouldTranslateField(input: {
   content: TranslatableContentItem;
@@ -116,7 +125,17 @@ export async function processTranslationJob(jobId: string, shop: string) {
     skippedItems: 0,
     failedItems: 0,
   });
+  const providerLabel = getProviderLabel(settings.provider);
+  const modelHint =
+    settings.provider === "openai" && settings.openaiModel
+      ? ` (${settings.openaiModel})`
+      : "";
+
   await appendJobLog(jobId, `任务开始，目标语言: ${targetLocales.join(", ")}`);
+  await setJobActivity(
+    jobId,
+    `任务开始 · 引擎 ${providerLabel}${modelHint}`,
+  );
 
   try {
     const admin = await getAdminForShop(shop);
@@ -125,14 +144,32 @@ export async function processTranslationJob(jobId: string, shop: string) {
     let translatedItems = 0;
     let skippedItems = 0;
     let failedItems = 0;
+    let lastActivityAt = 0;
+
+    const reportActivity = async (message: string, force = false) => {
+      const now = Date.now();
+      if (!force && now - lastActivityAt < ACTIVITY_THROTTLE_MS) {
+        return;
+      }
+      lastActivityAt = now;
+      await setJobActivity(jobId, message);
+    };
 
     for (const resourceType of resourceTypes) {
       let cursor: string | null = null;
       let hasNextPage = true;
 
       await appendJobLog(jobId, `开始处理资源类型 ${resourceType}`);
+      await reportActivity(
+        `正在扫描 ${RESOURCE_TYPE_LABELS[resourceType] ?? resourceType} 列表…`,
+        true,
+      );
 
       while (hasNextPage) {
+        await reportActivity(
+          `正在拉取 ${RESOURCE_TYPE_LABELS[resourceType] ?? resourceType} 分页数据…`,
+        );
+
         const page = await fetchTranslatableResourcesPage(
           admin,
           resourceType,
@@ -162,6 +199,10 @@ export async function processTranslationJob(jobId: string, shop: string) {
             }
 
             try {
+              await reportActivity(
+                `正在读取 ${shortResourceId(resourceId)} 的 ${targetLocale} 译文…`,
+              );
+
               const resource = await fetchResourceWithTranslations(
                 admin,
                 resourceId,
@@ -197,6 +238,15 @@ export async function processTranslationJob(jobId: string, shop: string) {
                 }
 
                 try {
+                  const progressHint =
+                    totalItems > 0
+                      ? ` · 进度 ${processedItems}/${totalItems}`
+                      : "";
+
+                  await reportActivity(
+                    `正在调用 ${providerLabel}${modelHint} 翻译 ${shortResourceId(resourceId)} [${content.key}] → ${targetLocale}${progressHint}`,
+                  );
+
                   const translatedValue = await translateText({
                     text: content.value,
                     sourceLocale: settings.sourceLocale,
@@ -222,6 +272,13 @@ export async function processTranslationJob(jobId: string, shop: string) {
                     `翻译失败 ${resourceId} [${content.key}] -> ${targetLocale}: ${message}`,
                   );
                 }
+              }
+
+              if (pendingTranslations.length > 0) {
+                await reportActivity(
+                  `正在上传 ${pendingTranslations.length} 条译文到 Shopify (${shortResourceId(resourceId)}, ${targetLocale})…`,
+                  true,
+                );
               }
 
               for (

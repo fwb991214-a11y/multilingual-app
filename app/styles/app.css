@@ -137,3 +137,61 @@
   max-height: 320px;
   overflow: auto;
 }
+
+.job-activity {
+  font-size: 13px;
+  color: #005bd3;
+  margin: 4px 0 0;
+  line-height: 1.4;
+}
+
+.progress-block {
+  margin: 12px 0;
+}
+
+.progress-label {
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+
+.progress-track {
+  height: 8px;
+  background: #e3e3e3;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: #008060;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.activity-banner {
+  background: #f0f5ff;
+  border: 1px solid #b4c6ff;
+  border-radius: 6px;
+  padding: 12px;
+  margin: 12px 0;
+}
+
+.activity-banner strong {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+
+.activity-banner p {
+  margin: 0;
+  font-size: 13px;
+  color: #202223;
+  line-height: 1.5;
+}
+
+.activity-hint {
+  margin-top: 8px !important;
+  font-size: 12px !important;
+  color: #616161 !important;
+}

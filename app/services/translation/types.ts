@@ -132,6 +132,7 @@ export interface TranslationJobSummary {
   failedItems: number;
   errorMessage: string | null;
   logs: string[];
+  activityMessage: string | null;
   createdAt: string;
   updatedAt: string;
 }

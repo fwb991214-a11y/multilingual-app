@@ -127,6 +127,8 @@ export async function listTranslationJobs(shop: string, limit = 20) {
   });
 }
 
+const JOB_ACTIVITY_PREFIX = "[当前] ";
+
 function parseJsonArray<T>(value: string): T[] {
   try {
     const parsed = JSON.parse(value) as T[];
@@ -134,6 +136,36 @@ function parseJsonArray<T>(value: string): T[] {
   } catch {
     return [];
   }
+}
+
+export function getActivityMessageFromLogs(logs: string[]): string | null {
+  for (let i = logs.length - 1; i >= 0; i--) {
+    const line = logs[i];
+    const marker = JOB_ACTIVITY_PREFIX;
+    const idx = line.indexOf(marker);
+    if (idx !== -1) {
+      return line.slice(idx + marker.length).trim() || null;
+    }
+  }
+  return null;
+}
+
+/** 更新任务「当前步骤」，轮询 jobs 时可即时看到（约每 2.5 秒最多写一次）。 */
+export async function setJobActivity(jobId: string, message: string) {
+  const job = await prisma.translationJob.findUnique({ where: { id: jobId } });
+  if (!job || job.status === "completed") {
+    return;
+  }
+
+  const logs = parseJsonArray<string>(job.logs);
+  const withoutActivity = logs.filter((line) => !line.includes(JOB_ACTIVITY_PREFIX));
+  withoutActivity.push(`${new Date().toISOString()} ${JOB_ACTIVITY_PREFIX}${message}`);
+  const trimmedLogs = withoutActivity.slice(-100);
+
+  await prisma.translationJob.update({
+    where: { id: jobId },
+    data: { logs: JSON.stringify(trimmedLogs) },
+  });
 }
 
 export function serializeTranslationJob(
@@ -152,6 +184,7 @@ export function serializeTranslationJob(
     failedItems: job.failedItems,
     errorMessage: job.errorMessage,
     logs: parseJsonArray<string>(job.logs),
+    activityMessage: getActivityMessageFromLogs(parseJsonArray<string>(job.logs)),
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
   };

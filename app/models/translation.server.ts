@@ -136,6 +136,18 @@ export async function markStaleRunningJobs(shop: string) {
   }
 }
 
+/** 已保存 resumeState、等待下一批的任务（供 Vercel Cron 续跑，避免函数自调用 508） */
+export async function listJobsNeedingContinuation(limit = 5) {
+  return prisma.translationJob.findMany({
+    where: {
+      status: "running",
+      resumeState: { not: null },
+    },
+    orderBy: { updatedAt: "asc" },
+    take: limit,
+  });
+}
+
 export async function listTranslationJobs(shop: string, limit = 20) {
   await markStaleRunningJobs(shop);
   return prisma.translationJob.findMany({

@@ -228,12 +228,15 @@ export async function processTranslationJob(
         await saveJobResumeState(jobId, stateWithResources);
         await appendJobLog(
           jobId,
-          `本批接近 Vercel 时限，已保存进度（已处理 ${processedResourceIds.size} 个资源），正在自动续跑…`,
+          `本批接近 Vercel 时限，已保存进度（已处理 ${processedResourceIds.size} 个资源）。约 1–2 分钟内由定时任务自动续跑…`,
         );
         await reportActivity(
-          `本批已满约 3 分钟，续跑下一批（已处理 ${processedResourceIds.size} 个资源）…`,
+          `本批已满约 3 分钟，等待自动续跑（已处理 ${processedResourceIds.size} 个资源）…`,
           true,
         );
+        await updateJobProgress(jobId, {
+          errorMessage: null,
+        });
         void triggerTranslationJobRun(
           options?.appOrigin ?? "",
           jobId,
@@ -243,12 +246,8 @@ export async function processTranslationJob(
           if (!trigger.ok) {
             await appendJobLog(
               jobId,
-              `自动续跑触发失败：${trigger.error}。请在任务详情点击「继续本任务」。`,
+              `即时续跑未成功（${trigger.error}），将由定时任务在约 2 分钟内重试；也可手动点「继续本任务」。`,
             );
-            await updateJobProgress(jobId, {
-              errorMessage:
-                "自动续跑失败，进度已保存。请点击「继续本任务」或重新批量翻译",
-            });
           }
         });
       } catch (error) {

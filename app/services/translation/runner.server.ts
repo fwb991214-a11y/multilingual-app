@@ -219,35 +219,45 @@ export async function processTranslationJob(
     const scheduleContinuation = async (
       state: TranslationJobResumeState,
     ) => {
-      const stateWithResources: TranslationJobResumeState = {
-        ...state,
-        processedResourceIds: [...processedResourceIds],
-      };
-      await saveJobResumeState(jobId, stateWithResources);
-      await appendJobLog(
-        jobId,
-        `本批接近 Vercel 时限，已保存进度（已处理 ${processedResourceIds.size} 个资源），正在自动续跑…`,
-      );
-      await reportActivity(
-        `本批已满约 4 分钟，续跑下一批（已处理 ${processedResourceIds.size} 个资源）…`,
-        true,
-      );
-      const trigger = await triggerTranslationJobRun(
-        options?.appOrigin ?? "",
-        jobId,
-        shop,
-        { continuation: true },
-      );
-      if (!trigger.ok) {
+      try {
+        const stateWithResources: TranslationJobResumeState = {
+          ...state,
+          processedResourceIds: [...processedResourceIds],
+        };
+        await saveJobResumeState(jobId, stateWithResources);
         await appendJobLog(
           jobId,
-          `自动续跑触发失败：${trigger.error}。请在任务详情点击「继续本任务」。`,
+          `本批接近 Vercel 时限，已保存进度（已处理 ${processedResourceIds.size} 个资源），正在自动续跑…`,
         );
+        await reportActivity(
+          `本批已满约 4 分钟，续跑下一批（已处理 ${processedResourceIds.size} 个资源）…`,
+          true,
+        );
+        const trigger = await triggerTranslationJobRun(
+          options?.appOrigin ?? "",
+          jobId,
+          shop,
+          { continuation: true },
+        );
+        if (!trigger.ok) {
+          await appendJobLog(
+            jobId,
+            `自动续跑触发失败：${trigger.error}。请在任务详情点击「继续本任务」。`,
+          );
+          await updateJobProgress(jobId, {
+            errorMessage:
+              "自动续跑失败，进度已保存。请点击「继续本任务」或重新批量翻译",
+          });
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        await appendJobLog(jobId, `续跑调度异常: ${message}`);
         await updateJobProgress(jobId, {
           errorMessage:
-            "自动续跑失败，进度已保存。请点击「继续本任务」或重新批量翻译",
+            "自动续跑异常，进度已保存。请点击「继续本任务」",
         });
       }
+      return;
     };
 
     const typeStartIndex = resume?.resourceTypeIndex ?? 0;
@@ -484,11 +494,9 @@ export async function processTranslationJob(
 
               processedItems += sourceContent.length;
             } catch (error) {
-              const message = formatProviderError(
-                providerLabel,
-                error,
-                `资源处理失败 ${shortResourceId(resourceId)} (${targetLocale})`,
-              );
+              const detail =
+                error instanceof Error ? error.message : String(error);
+              const message = `资源处理失败 ${shortResourceId(resourceId)} (${targetLocale})：${detail}`;
               await appendJobLog(jobId, message);
               await reportActivity(`✗ ${message}`, true);
               processedItems += sourceContent.length;

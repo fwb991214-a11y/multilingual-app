@@ -31,20 +31,29 @@ function resolveDevAppUrlFromManifest(): string | null {
   }
 }
 
+function normalizeOriginUrl(value: string) {
+  const trimmed = value.trim().replace(/\/$/, "");
+  if (!trimmed) {
+    return "";
+  }
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
+}
+
 function resolveShopifyAppUrl(): string {
   if (process.env.SHOPIFY_APP_URL?.trim()) {
-    return process.env.SHOPIFY_APP_URL.trim();
+    return normalizeOriginUrl(process.env.SHOPIFY_APP_URL);
   }
 
   const host = process.env.HOST?.trim();
   if (host) {
-    // Some environments provide HOST without protocol.
-    return host.startsWith("http://") || host.startsWith("https://")
-      ? host
-      : `https://${host}`;
+    return normalizeOriginUrl(host);
   }
 
-  return resolveDevAppUrlFromManifest() ?? "";
+  const fromManifest = resolveDevAppUrlFromManifest();
+  return fromManifest ? normalizeOriginUrl(fromManifest) : "";
 }
 
 const resolvedAppUrl = resolveShopifyAppUrl();

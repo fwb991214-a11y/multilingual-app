@@ -93,6 +93,7 @@ export function isNonTranslatableValue(value: string) {
 
 export const HTML_CONTENT_KEYS = new Set([
   "body_html",
+  "description",
   "description_html",
   "content_html",
 ]);

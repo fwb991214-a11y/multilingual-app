@@ -4,6 +4,7 @@ import {
   OPENAI_REQUEST_TIMEOUT_MS,
 } from "./fetch-timeout.server";
 import { truncateForDisplay } from "./errors.server";
+import { sanitizeTranslationOutput } from "./sanitize.server";
 import type {
   ShopSettingsRecord,
   TranslationProvider,
@@ -40,8 +41,8 @@ async function translateWithOpenAI(options: TranslateOptions) {
   }
 
   const systemPrompt = options.isHtml
-    ? "You are a professional e-commerce translator. Translate only visible text inside HTML tags. Keep all HTML tags, attributes, URLs, and structure unchanged. Return only the translated HTML."
-    : "You are a professional e-commerce translator. Return only the translated text without quotes or explanations.";
+    ? "You are a professional e-commerce translator. Translate only visible text inside HTML fragments. Keep existing tags, attributes, URLs, and structure unchanged. Return ONLY the translated HTML fragment. Do NOT add <html>, <head>, <body>, markdown code fences, or explanations."
+    : "You are a professional e-commerce translator. Return only the translated plain text without quotes, HTML wrappers, or explanations.";
 
   const model = options.settings.openaiModel || "gpt-4o-mini";
 
@@ -93,12 +94,12 @@ async function translateWithOpenAI(options: TranslateOptions) {
     choices?: Array<{ message?: { content?: string } }>;
   };
 
-  const translated = json.choices?.[0]?.message?.content?.trim();
-  if (!translated) {
+  const raw = json.choices?.[0]?.message?.content?.trim();
+  if (!raw) {
     throw new Error("OpenAI 返回空翻译结果");
   }
 
-  return translated;
+  return sanitizeTranslationOutput(raw, options.isHtml);
 }
 
 async function translateWithDeepL(options: TranslateOptions) {
@@ -145,12 +146,12 @@ async function translateWithDeepL(options: TranslateOptions) {
     translations?: Array<{ text?: string }>;
   };
 
-  const translated = json.translations?.[0]?.text?.trim();
-  if (!translated) {
+  const raw = json.translations?.[0]?.text?.trim();
+  if (!raw) {
     throw new Error("DeepL 返回空翻译结果");
   }
 
-  return translated;
+  return sanitizeTranslationOutput(raw, options.isHtml);
 }
 
 function normalizeDeepLLocale(locale: string) {

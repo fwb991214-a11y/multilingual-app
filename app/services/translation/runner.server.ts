@@ -232,19 +232,20 @@ export async function processTranslationJob(
         `本批已满约 4 分钟，续跑下一批（已处理 ${processedResourceIds.size} 个资源）…`,
         true,
       );
-      const ok = await triggerTranslationJobRun(
+      const trigger = await triggerTranslationJobRun(
         options?.appOrigin ?? "",
         jobId,
         shop,
         { continuation: true },
       );
-      if (!ok) {
+      if (!trigger.ok) {
         await appendJobLog(
           jobId,
-          "自动续跑触发失败：请确认已部署最新代码，并重新点击「开始批量翻译」",
+          `自动续跑触发失败：${trigger.error}。请在任务详情点击「继续本任务」。`,
         );
         await updateJobProgress(jobId, {
-          errorMessage: "自动续跑失败，店内仅部分商品已处理，请重新运行任务",
+          errorMessage:
+            "自动续跑失败，进度已保存。请点击「继续本任务」或重新批量翻译",
         });
       }
     };

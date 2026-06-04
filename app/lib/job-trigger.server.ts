@@ -8,35 +8,35 @@ export function getInternalJobSecret() {
   );
 }
 
+function collectOriginCandidates(requestOrigin?: string) {
+  const candidates = [
+    requestOrigin?.replace(/\/$/, ""),
+    process.env.SHOPIFY_APP_URL?.replace(/\/$/, ""),
+    process.env.VERCEL_PROJECT_PRODUCTION_URL?.replace(/\/$/, ""),
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "",
+  ].filter((value): value is string => Boolean(value?.trim()));
+
+  return [...new Set(candidates)];
+}
+
 export function resolveAppOrigin(requestOrigin?: string) {
-  const fromEnv =
-    process.env.SHOPIFY_APP_URL?.replace(/\/$/, "") ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
-  return requestOrigin || fromEnv;
+  const candidates = collectOriginCandidates(requestOrigin);
+  return candidates[0] ?? "";
 }
 
 /** 独立 Serverless 调用，避免与 POST /app.data 共用 300s 上限。 */
-export async function triggerTranslationJobRun(
-  appOrigin: string,
+export type TriggerJobResult = { ok: true } | { ok: false; error: string };
+
+async function postRunEndpoint(
+  origin: string,
+  pathname: string,
+  secret: string,
   jobId: string,
   shop: string,
-  options?: { continuation?: boolean },
-): Promise<boolean> {
-  const secret = getInternalJobSecret();
-  const origin = resolveAppOrigin(appOrigin);
-  if (!secret) {
-    console.error(
-      "[job-trigger] 未配置 INTERNAL_JOB_SECRET 或 SHOPIFY_API_SECRET，无法后台启动任务",
-    );
-    return false;
-  }
-  if (!origin) {
-    console.error("[job-trigger] 无法解析应用 URL，无法触发续跑");
-    return false;
-  }
-
-  const url = new URL("/api/translation/run", origin);
-  if (options?.continuation) {
+  continuation: boolean,
+): Promise<TriggerJobResult> {
+  const url = new URL(pathname, origin);
+  if (continuation) {
     url.searchParams.set("continuation", "1");
   }
 
@@ -46,21 +46,71 @@ export async function triggerTranslationJobRun(
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${secret}`,
+        Accept: "application/json",
       },
       body: JSON.stringify({ jobId, shop }),
     });
-    if (!response.ok) {
-      const body = await response.text();
-      console.error(
-        `[job-trigger] HTTP ${response.status} ${url.pathname}: ${body.slice(0, 200)}`,
-      );
-      return false;
+    if (response.ok) {
+      return { ok: true };
     }
-    return true;
+    const body = await response.text();
+    return {
+      ok: false,
+      error: `HTTP ${response.status} ${url.href}: ${body.slice(0, 160)}`,
+    };
   } catch (error) {
-    console.error("[job-trigger] 触发翻译任务失败", error);
-    return false;
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, error: `${url.href}: ${message}` };
   }
+}
+
+export async function triggerTranslationJobRun(
+  appOrigin: string,
+  jobId: string,
+  shop: string,
+  options?: { continuation?: boolean },
+): Promise<TriggerJobResult> {
+  const secret = getInternalJobSecret();
+  if (!secret) {
+    const error =
+      "未配置 INTERNAL_JOB_SECRET 或 SHOPIFY_API_SECRET，无法触发后台任务";
+    console.error(`[job-trigger] ${error}`);
+    return { ok: false, error };
+  }
+
+  const origins = collectOriginCandidates(appOrigin);
+  if (origins.length === 0) {
+    const error = "无法解析应用 URL（请设置 Vercel 环境变量 SHOPIFY_APP_URL）";
+    console.error(`[job-trigger] ${error}`);
+    return { ok: false, error };
+  }
+
+  const paths = ["/api/translation/run", "/api/translation/run.data"];
+  const continuation = options?.continuation === true;
+  let lastError = "未知错误";
+
+  for (const origin of origins) {
+    for (const pathname of paths) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        const result = await postRunEndpoint(
+          origin,
+          pathname,
+          secret,
+          jobId,
+          shop,
+          continuation,
+        );
+        if (result.ok) {
+          return result;
+        }
+        lastError = result.error;
+        await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
+      }
+    }
+  }
+
+  console.error(`[job-trigger] 触发失败: ${lastError}`);
+  return { ok: false, error: lastError };
 }
 
 export function parseResumeState(

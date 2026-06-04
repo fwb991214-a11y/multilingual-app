@@ -1,6 +1,16 @@
 import { useEffect } from "react";
-import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { Link, useLoaderData, useLocation, useRevalidator } from "react-router";
+import type {
+  ActionFunctionArgs,
+  HeadersFunction,
+  LoaderFunctionArgs,
+} from "react-router";
+import {
+  Link,
+  useFetcher,
+  useLoaderData,
+  useLocation,
+  useRevalidator,
+} from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import {
@@ -10,7 +20,32 @@ import {
   serializeTranslationJob,
   toShopSettingsRecord,
 } from "../models/translation.server";
+import { triggerTranslationJobRun } from "../lib/job-trigger.server";
 import { getProviderLabel } from "../services/translation/labels";
+
+export const action = async ({ request }: ActionFunctionArgs) => {
+  const { session } = await authenticate.admin(request);
+  const formData = await request.formData();
+  if (formData.get("intent") !== "resume") {
+    return { ok: false, error: "未知操作" };
+  }
+
+  const jobId = String(formData.get("jobId") || "").trim();
+  if (!jobId) {
+    return { ok: false, error: "缺少任务 ID" };
+  }
+
+  const origin = new URL(request.url).origin;
+  const trigger = await triggerTranslationJobRun(origin, jobId, session.shop, {
+    continuation: true,
+  });
+
+  if (!trigger.ok) {
+    return { ok: false, error: `续跑失败：${trigger.error}` };
+  }
+
+  return { ok: true, message: "已触发继续运行，请稍候刷新查看进度" };
+};
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -99,6 +134,7 @@ function statusLabel(status: string) {
 export default function JobsPage() {
   const { jobs, selectedJob, providerLabel, openaiModel } =
     useLoaderData<typeof loader>();
+  const resumeFetcher = useFetcher<typeof action>();
   const revalidator = useRevalidator();
   const location = useLocation();
   const baseSearchParams = new URLSearchParams(location.search);
@@ -236,6 +272,29 @@ export default function JobsPage() {
           </p>
           {selectedJob.errorMessage && (
             <div className="banner-error">{selectedJob.errorMessage}</div>
+          )}
+
+          {resumeFetcher.data?.ok && (
+            <div className="banner-success">{resumeFetcher.data.message}</div>
+          )}
+          {resumeFetcher.data?.error && (
+            <div className="banner-error">{resumeFetcher.data.error}</div>
+          )}
+
+          {selectedJob.canResume && (
+            <resumeFetcher.Form method="post" style={{ marginTop: 12 }}>
+              <input type="hidden" name="intent" value="resume" />
+              <input type="hidden" name="jobId" value={selectedJob.id} />
+              <button
+                type="submit"
+                className="btn-primary"
+                disabled={resumeFetcher.state !== "idle"}
+              >
+                {resumeFetcher.state !== "idle"
+                  ? "正在触发续跑…"
+                  : "继续本任务（从上次进度）"}
+              </button>
+            </resumeFetcher.Form>
           )}
 
           <h2 style={{ marginTop: 16 }}>日志</h2>

@@ -203,6 +203,10 @@ export function serializeTranslationJob(
     errorMessage: job.errorMessage,
     logs: parseJsonArray<string>(job.logs),
     activityMessage: getActivityMessageFromLogs(parseJsonArray<string>(job.logs)),
+    canResume: Boolean(
+      job.resumeState?.trim() &&
+        (job.status === "running" || job.status === "failed"),
+    ),
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
   };

@@ -146,6 +146,7 @@ export interface TranslationJobSummary {
   errorMessage: string | null;
   logs: string[];
   activityMessage: string | null;
+  canResume: boolean;
   createdAt: string;
   updatedAt: string;
 }

@@ -1,7 +1,9 @@
+import { serializeResumeState } from "../lib/job-trigger.server";
 import prisma from "../db.server";
 import type {
   ShopSettingsRecord,
   TranslationJobSummary,
+  TranslationJobResumeState,
   TranslationMode,
   TranslationProvider,
   TranslatableResourceType,
@@ -206,6 +208,16 @@ export async function appendJobLog(jobId: string, message: string) {
   });
 }
 
+export async function saveJobResumeState(
+  jobId: string,
+  state: TranslationJobResumeState | null,
+) {
+  await prisma.translationJob.update({
+    where: { id: jobId },
+    data: { resumeState: state ? serializeResumeState(state) : null },
+  });
+}
+
 export async function updateJobProgress(
   jobId: string,
   data: Partial<{
@@ -216,6 +228,7 @@ export async function updateJobProgress(
     skippedItems: number;
     failedItems: number;
     errorMessage: string | null;
+    resumeState: string | null;
   }>,
 ) {
   if (!data.status) {

@@ -54,6 +54,7 @@ model TranslationJob {
   skippedItems    Int      @default(0)
   failedItems     Int      @default(0)
   errorMessage    String?
+  resumeState     String?
   logs            String   @default("[]")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt

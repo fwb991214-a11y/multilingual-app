@@ -15,6 +15,17 @@ export type TranslationMode = "all" | "missing_only" | "outdated_only";
 
 export type TranslationProvider = "mock" | "openai" | "deepl";
 
+/** Vercel 单次函数最长约 300s，分片续跑时持久化进度。 */
+export interface TranslationJobResumeState {
+  resourceTypeIndex: number;
+  pageCursor: string | null;
+  totalItems: number;
+  processedItems: number;
+  translatedItems: number;
+  skippedItems: number;
+  failedItems: number;
+}
+
 export const TRANSLATION_MODES: { value: TranslationMode; label: string }[] = [
   { value: "missing_only", label: "仅翻译缺失项" },
   { value: "outdated_only", label: "仅翻译过期项" },

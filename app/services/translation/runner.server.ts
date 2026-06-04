@@ -1,7 +1,12 @@
 import { unauthenticated } from "../../shopify.server";
 import {
+  parseResumeState,
+  triggerTranslationJobRun,
+} from "../../lib/job-trigger.server";
+import {
   appendJobLog,
   getTranslationJob,
+  saveJobResumeState,
   setJobActivity,
   toShopSettingsRecord,
   updateJobProgress,
@@ -30,6 +35,7 @@ import {
   type TranslatableResourceType,
   RESOURCE_TYPE_LABELS,
   type TranslationInputPayload,
+  type TranslationJobResumeState,
   type TranslationMode,
 } from "./types";
 
@@ -37,6 +43,9 @@ const PAGE_SIZE = 20;
 const REGISTER_BATCH_SIZE = 25;
 const TRANSLATION_DELAY_MS = 120;
 const ACTIVITY_THROTTLE_MS = 2500;
+/** Vercel 单次调用上限 300s，提前切片并触发下一次独立调用。 */
+const CHUNK_TIME_BUDGET_MS = 4 * 60 * 1000;
+const DUPLICATE_RUN_GUARD_MS = 60 * 1000;
 
 function shortResourceId(resourceId: string) {
   const parts = resourceId.split("/");
@@ -85,7 +94,11 @@ async function getAdminForShop(shop: string): Promise<AdminGraphqlClient> {
   return admin;
 }
 
-export async function processTranslationJob(jobId: string, shop: string) {
+export async function processTranslationJob(
+  jobId: string,
+  shop: string,
+  options?: { isContinuation?: boolean; appOrigin?: string },
+) {
   const job = await getTranslationJob(jobId, shop);
   if (!job) {
     return;
@@ -95,14 +108,23 @@ export async function processTranslationJob(jobId: string, shop: string) {
     return;
   }
 
-  if (job.status === "running") {
+  const isContinuation = options?.isContinuation === true;
+  const resume = parseResumeState(job.resumeState);
+  const isResume = isContinuation && resume != null;
+
+  if (job.status === "running" && !isContinuation) {
+    const age = Date.now() - job.updatedAt.getTime();
+    if (age < DUPLICATE_RUN_GUARD_MS) {
+      return;
+    }
     const staleMs = 30 * 60 * 1000;
-    if (Date.now() - job.updatedAt.getTime() < staleMs) {
+    if (age < staleMs) {
       return;
     }
     await updateJobProgress(jobId, {
       status: "failed",
       errorMessage: "任务已超时，正在重新执行",
+      resumeState: null,
     });
     await appendJobLog(jobId, "检测到陈旧 running 状态，重新执行");
   }
@@ -121,34 +143,49 @@ export async function processTranslationJob(jobId: string, shop: string) {
         sourceLocale: "en",
       };
 
-  await updateJobProgress(jobId, {
-    status: "running",
-    errorMessage: null,
-    processedItems: 0,
-    translatedItems: 0,
-    skippedItems: 0,
-    failedItems: 0,
-  });
   const providerLabel = getProviderLabel(settings.provider);
   const modelHint =
     settings.provider === "openai" && settings.openaiModel
       ? ` (${settings.openaiModel})`
       : "";
 
-  await appendJobLog(jobId, `任务开始，目标语言: ${targetLocales.join(", ")}`);
-  await setJobActivity(
-    jobId,
-    `任务开始 · 引擎 ${providerLabel}${modelHint}`,
-  );
+  if (!isResume) {
+    await updateJobProgress(jobId, {
+      status: "running",
+      errorMessage: null,
+      processedItems: 0,
+      translatedItems: 0,
+      skippedItems: 0,
+      failedItems: 0,
+      resumeState: null,
+    });
+    await appendJobLog(jobId, `任务开始，目标语言: ${targetLocales.join(", ")}`);
+    await setJobActivity(
+      jobId,
+      `任务开始 · 引擎 ${providerLabel}${modelHint}`,
+    );
+  } else {
+    await updateJobProgress(jobId, {
+      status: "running",
+      errorMessage: null,
+    });
+    await appendJobLog(jobId, "续跑下一批（独立函数调用）");
+    await setJobActivity(
+      jobId,
+      `续跑任务 · ${providerLabel}${modelHint} · 已从进度 ${resume.processedItems}/${resume.totalItems} 继续`,
+      true,
+    );
+  }
 
   try {
     const admin = await getAdminForShop(shop);
-    let totalItems = 0;
-    let processedItems = 0;
-    let translatedItems = 0;
-    let skippedItems = 0;
-    let failedItems = 0;
+    let totalItems = resume?.totalItems ?? 0;
+    let processedItems = resume?.processedItems ?? 0;
+    let translatedItems = resume?.translatedItems ?? 0;
+    let skippedItems = resume?.skippedItems ?? 0;
+    let failedItems = resume?.failedItems ?? 0;
     let lastActivityAt = 0;
+    const chunkStartedAt = Date.now();
 
     const reportActivity = async (message: string, force = false) => {
       const now = Date.now();
@@ -159,8 +196,37 @@ export async function processTranslationJob(jobId: string, shop: string) {
       await setJobActivity(jobId, message);
     };
 
-    for (const resourceType of resourceTypes) {
-      let cursor: string | null = null;
+    const shouldYieldChunk = () =>
+      Date.now() - chunkStartedAt >= CHUNK_TIME_BUDGET_MS;
+
+    const scheduleContinuation = async (
+      state: TranslationJobResumeState,
+    ) => {
+      await saveJobResumeState(jobId, state);
+      await appendJobLog(
+        jobId,
+        "本批接近 Vercel 时限，已保存进度并自动续跑…",
+      );
+      await reportActivity(
+        "本批已跑满约 4 分钟，正在自动启动下一批独立任务…",
+        true,
+      );
+      if (options?.appOrigin) {
+        triggerTranslationJobRun(options.appOrigin, jobId, shop, {
+          continuation: true,
+        });
+      }
+    };
+
+    const typeStartIndex = resume?.resourceTypeIndex ?? 0;
+    const initialCursor =
+      resume?.pageCursor != null && typeStartIndex < resourceTypes.length
+        ? resume.pageCursor
+        : null;
+
+    for (let typeIndex = typeStartIndex; typeIndex < resourceTypes.length; typeIndex++) {
+      const resourceType = resourceTypes[typeIndex];
+      let cursor = typeIndex === typeStartIndex ? initialCursor : null;
       let hasNextPage = true;
 
       await appendJobLog(jobId, `开始处理资源类型 ${resourceType}`);
@@ -170,6 +236,19 @@ export async function processTranslationJob(jobId: string, shop: string) {
       );
 
       while (hasNextPage) {
+        if (shouldYieldChunk()) {
+          await scheduleContinuation({
+            resourceTypeIndex: typeIndex,
+            pageCursor: cursor,
+            totalItems,
+            processedItems,
+            translatedItems,
+            skippedItems,
+            failedItems,
+          });
+          return;
+        }
+
         await reportActivity(
           `正在拉取 ${RESOURCE_TYPE_LABELS[resourceType] ?? resourceType} 分页数据…`,
         );
@@ -190,6 +269,19 @@ export async function processTranslationJob(jobId: string, shop: string) {
         });
 
         for (const edge of page.edges) {
+          if (shouldYieldChunk()) {
+            await scheduleContinuation({
+              resourceTypeIndex: typeIndex,
+              pageCursor: cursor,
+              totalItems,
+              processedItems,
+              translatedItems,
+              skippedItems,
+              failedItems,
+            });
+            return;
+          }
+
           const resourceId = edge.node.resourceId;
           const sourceContent = edge.node.translatableContent.filter(
             (item) => item.locale === settings.sourceLocale,
@@ -228,6 +320,19 @@ export async function processTranslationJob(jobId: string, shop: string) {
               let fieldsHandledInBlock = 0;
 
               for (const content of sourceContent) {
+                if (shouldYieldChunk()) {
+                  await scheduleContinuation({
+                    resourceTypeIndex: typeIndex,
+                    pageCursor: cursor,
+                    totalItems,
+                    processedItems,
+                    translatedItems,
+                    skippedItems,
+                    failedItems,
+                  });
+                  return;
+                }
+
                 fieldsHandledInBlock += 1;
 
                 const existing = existingMap.get(content.key);
@@ -353,6 +458,7 @@ export async function processTranslationJob(jobId: string, shop: string) {
       }
     }
 
+    await saveJobResumeState(jobId, null);
     await updateJobProgress(jobId, {
       status: "completed",
       totalItems,
@@ -360,6 +466,7 @@ export async function processTranslationJob(jobId: string, shop: string) {
       translatedItems,
       skippedItems,
       failedItems,
+      resumeState: null,
     });
     await appendJobLog(jobId, "任务完成");
   } catch (error) {
@@ -372,9 +479,12 @@ export async function processTranslationJob(jobId: string, shop: string) {
   }
 }
 
-/** 在后台执行翻译；Vercel 上必须由 action 里 waitUntil() 包装，不能在此处立即启动 Promise。 */
-export function runTranslationJobSafely(jobId: string, shop: string) {
-  return processTranslationJob(jobId, shop).catch(async (error) => {
+export function runTranslationJobSafely(
+  jobId: string,
+  shop: string,
+  options?: { isContinuation?: boolean; appOrigin?: string },
+) {
+  return processTranslationJob(jobId, shop, options).catch(async (error) => {
     const message = error instanceof Error ? error.message : String(error);
     await updateJobProgress(jobId, {
       status: "failed",

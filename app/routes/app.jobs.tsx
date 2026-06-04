@@ -159,47 +159,57 @@ export default function JobsPage() {
     return () => clearInterval(interval);
   }, [selectedJob?.id, selectedJob?.status, revalidator]);
 
+  const jobLink = (jobId: string) => {
+    const params = new URLSearchParams(baseSearchParams);
+    params.set("job", jobId);
+    return `/app/jobs?${params.toString()}`;
+  };
+
   return (
-    <div>
+    <div className="jobs-page">
       <h1 className="page-title">翻译任务</h1>
 
-      <div className="section">
-        <h2>任务列表</h2>
-        {jobs.length === 0 ? (
-          <p>暂无任务，请先在「批量翻译」页面创建任务。</p>
-        ) : (
-          jobs.map((job) => (
-            <div key={job.id} className="job-card">
-              <p>
+      <div className="jobs-layout">
+        <aside className="section jobs-list-panel">
+          <h2>任务列表</h2>
+          {jobs.length === 0 ? (
+            <p>暂无任务，请先在「批量翻译」页面创建任务。</p>
+          ) : (
+            jobs.map((job) => {
+              const isSelected = selectedJob?.id === job.id;
+              return (
                 <Link
-                  to={(() => {
-                    const params = new URLSearchParams(baseSearchParams);
-                    params.set("job", job.id);
-                    return `/app/jobs?${params.toString()}`;
-                  })()}
+                  key={job.id}
+                  to={jobLink(job.id)}
+                  className={`job-card job-card-link${isSelected ? " job-card-selected" : ""}`}
                 >
-                  {statusLabel(job.status)} ·{" "}
-                  {new Date(job.createdAt).toLocaleString()}
+                  <p className="job-card-title">
+                    {statusLabel(job.status)} ·{" "}
+                    {new Date(job.createdAt).toLocaleString()}
+                  </p>
+                  <p>
+                    已译 {job.translatedItems} · 跳过 {job.skippedItems} · 失败{" "}
+                    {job.failedItems}
+                  </p>
+                  {job.status === "running" && job.activityMessage && (
+                    <p className="job-activity">{job.activityMessage}</p>
+                  )}
+                  <p className="job-card-meta">
+                    语言: {job.targetLocales.join(", ")}
+                  </p>
                 </Link>
-              </p>
-              <p>
-                已译 {job.translatedItems} 字段 · 跳过 {job.skippedItems} · 失败{" "}
-                {job.failedItems}
-              </p>
-              <p className="job-hint">
-                「已译」是字段数（标题/描述等），不是商品件数；跳过含已有日文、过长或超时跳过。
-              </p>
-              {job.status === "running" && job.activityMessage && (
-                <p className="job-activity">{job.activityMessage}</p>
-              )}
-              <p>语言: {job.targetLocales.join(", ")}</p>
-            </div>
-          ))
-        )}
-      </div>
+              );
+            })
+          )}
+        </aside>
 
-      {selectedJob && (
-        <div className="section">
+        <main className="section jobs-detail-panel">
+          {!selectedJob ? (
+            <p className="jobs-detail-empty">
+              请从左侧选择一条任务查看详情与日志
+            </p>
+          ) : (
+            <>
           <h2>任务详情</h2>
           <p>状态: {statusLabel(selectedJob.status)}</p>
           <p>
@@ -308,8 +318,10 @@ export default function JobsPage() {
                 .join("\n")}
             </div>
           )}
-        </div>
-      )}
+            </>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

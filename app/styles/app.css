@@ -3,6 +3,10 @@
   max-width: 960px;
 }
 
+.app-shell:has(.jobs-page) {
+  max-width: 1200px;
+}
+
 .app-nav {
   display: flex;
   gap: 16px;
@@ -125,6 +129,72 @@
 .job-card a {
   color: #005bd3;
   font-weight: 500;
+}
+
+.jobs-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 34%) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.jobs-list-panel,
+.jobs-detail-panel {
+  margin-bottom: 0;
+}
+
+.jobs-detail-panel {
+  min-height: 420px;
+}
+
+.jobs-detail-empty {
+  color: #8c9196;
+  text-align: center;
+  padding: 64px 16px;
+  margin: 0;
+}
+
+.job-card-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.job-card-link:hover {
+  border-color: #8c9196;
+  background: #fafbfb;
+}
+
+.job-card-selected {
+  border-color: #005bd3;
+  background: #f6f9fc;
+  box-shadow: 0 0 0 1px #005bd3;
+}
+
+.job-card-title {
+  font-weight: 600;
+  color: #005bd3;
+  margin: 0 0 6px;
+}
+
+.job-card-meta {
+  font-size: 12px;
+  margin-bottom: 0 !important;
+}
+
+.jobs-detail-panel .log-box {
+  max-height: min(480px, 50vh);
+}
+
+@media (max-width: 768px) {
+  .jobs-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .jobs-detail-panel {
+    min-height: 0;
+  }
 }
 
 .log-box {

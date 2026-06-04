@@ -1,4 +1,5 @@
 import type { ActionFunctionArgs } from "react-router";
+import { waitUntil } from "@vercel/functions";
 import { getInternalJobSecret } from "../lib/job-trigger.server";
 import { runTranslationJobSafely } from "../services/translation/runner.server";
 
@@ -35,11 +36,17 @@ export async function action({ request }: ActionFunctionArgs) {
   const isContinuation = url.searchParams.get("continuation") === "1";
   const appOrigin = url.origin;
 
-  await runTranslationJobSafely(jobId, shop, { isContinuation, appOrigin });
+  if (process.env.VERCEL === "1" || process.env.VERCEL === "true") {
+    waitUntil(
+      runTranslationJobSafely(jobId, shop, { isContinuation, appOrigin }),
+    );
+  } else {
+    void runTranslationJobSafely(jobId, shop, { isContinuation, appOrigin });
+  }
 
   return Response.json({
     ok: true,
-    finishedChunk: true,
+    accepted: true,
     continuation: isContinuation,
   });
 }

@@ -234,22 +234,23 @@ export async function processTranslationJob(
           `本批已满约 3 分钟，续跑下一批（已处理 ${processedResourceIds.size} 个资源）…`,
           true,
         );
-        const trigger = await triggerTranslationJobRun(
+        void triggerTranslationJobRun(
           options?.appOrigin ?? "",
           jobId,
           shop,
           { continuation: true },
-        );
-        if (!trigger.ok) {
-          await appendJobLog(
-            jobId,
-            `自动续跑触发失败：${trigger.error}。请在任务详情点击「继续本任务」。`,
-          );
-          await updateJobProgress(jobId, {
-            errorMessage:
-              "自动续跑失败，进度已保存。请点击「继续本任务」或重新批量翻译",
-          });
-        }
+        ).then(async (trigger) => {
+          if (!trigger.ok) {
+            await appendJobLog(
+              jobId,
+              `自动续跑触发失败：${trigger.error}。请在任务详情点击「继续本任务」。`,
+            );
+            await updateJobProgress(jobId, {
+              errorMessage:
+                "自动续跑失败，进度已保存。请点击「继续本任务」或重新批量翻译",
+            });
+          }
+        });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         await appendJobLog(jobId, `续跑调度异常: ${message}`);

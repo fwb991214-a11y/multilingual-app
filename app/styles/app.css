@@ -195,3 +195,15 @@
   font-size: 12px !important;
   color: #616161 !important;
 }
+
+.activity-banner.activity-error {
+  background: #fee;
+  border-color: #f99;
+}
+
+.progress-explainer {
+  font-size: 13px;
+  color: #616161;
+  line-height: 1.5;
+  margin: 0 0 12px;
+}

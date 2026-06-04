@@ -1,3 +1,9 @@
+import {
+  DEEPL_REQUEST_TIMEOUT_MS,
+  fetchWithTimeout,
+  OPENAI_REQUEST_TIMEOUT_MS,
+} from "./fetch-timeout.server";
+import { truncateForDisplay } from "./errors.server";
 import type {
   ShopSettingsRecord,
   TranslationProvider,
@@ -35,28 +41,50 @@ async function translateWithOpenAI(options: TranslateOptions) {
     ? "You are a professional e-commerce translator. Translate only visible text inside HTML tags. Keep all HTML tags, attributes, URLs, and structure unchanged. Return only the translated HTML."
     : "You are a professional e-commerce translator. Return only the translated text without quotes or explanations.";
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+  const model = options.settings.openaiModel || "gpt-4o-mini";
+
+  const response = await fetchWithTimeout(
+    "https://api.openai.com/v1/chat/completions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.2,
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: `Source language: ${options.sourceLocale}\nTarget language: ${options.targetLocale}\n\n${options.text}`,
+          },
+        ],
+      }),
     },
-    body: JSON.stringify({
-      model: options.settings.openaiModel || "gpt-4o-mini",
-      temperature: 0.2,
-      messages: [
-        { role: "system", content: systemPrompt },
-        {
-          role: "user",
-          content: `Source language: ${options.sourceLocale}\nTarget language: ${options.targetLocale}\n\n${options.text}`,
-        },
-      ],
-    }),
-  });
+    OPENAI_REQUEST_TIMEOUT_MS,
+    `OpenAI (${model})`,
+  );
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`OpenAI 翻译失败: ${errorText}`);
+    let detail = truncateForDisplay(errorText);
+    try {
+      const parsed = JSON.parse(errorText) as {
+        error?: { message?: string; type?: string };
+      };
+      if (parsed.error?.message) {
+        detail = parsed.error.type
+          ? `${parsed.error.type}: ${parsed.error.message}`
+          : parsed.error.message;
+      }
+    } catch {
+      /* 非 JSON 则使用原文截断 */
+    }
+    throw new Error(
+      `OpenAI API 错误 HTTP ${response.status}：${truncateForDisplay(detail)}`,
+    );
   }
 
   const json = (await response.json()) as {
@@ -90,18 +118,25 @@ async function translateWithDeepL(options: TranslateOptions) {
     body.set("tag_handling", "html");
   }
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `DeepL-Auth-Key ${apiKey}`,
-      "Content-Type": "application/x-www-form-urlencoded",
+  const response = await fetchWithTimeout(
+    endpoint,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `DeepL-Auth-Key ${apiKey}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body,
     },
-    body,
-  });
+    DEEPL_REQUEST_TIMEOUT_MS,
+    "DeepL",
+  );
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`DeepL 翻译失败: ${errorText}`);
+    throw new Error(
+      `DeepL API 错误 HTTP ${response.status}：${truncateForDisplay(errorText)}`,
+    );
   }
 
   const json = (await response.json()) as {

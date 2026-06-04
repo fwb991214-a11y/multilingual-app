@@ -6,6 +6,10 @@ import {
   toShopSettingsRecord,
   updateJobProgress,
 } from "../../models/translation.server";
+import {
+  formatProviderError,
+  textPreview,
+} from "./errors.server";
 import { getProviderLabel } from "./labels";
 import prisma from "../../db.server";
 import {
@@ -221,8 +225,10 @@ export async function processTranslationJob(jobId: string, shop: string) {
 
               const pendingTranslations: TranslationInputPayload[] = [];
 
+              let fieldsHandledInBlock = 0;
+
               for (const content of sourceContent) {
-                processedItems += 1;
+                fieldsHandledInBlock += 1;
 
                 const existing = existingMap.get(content.key);
                 if (
@@ -238,13 +244,15 @@ export async function processTranslationJob(jobId: string, shop: string) {
                 }
 
                 try {
+                  const doneSoFar = processedItems + fieldsHandledInBlock;
                   const progressHint =
                     totalItems > 0
-                      ? ` · 进度 ${processedItems}/${totalItems}`
+                      ? ` · 进度 ${doneSoFar}/${totalItems}`
                       : "";
 
                   await reportActivity(
-                    `正在调用 ${providerLabel}${modelHint} 翻译 ${shortResourceId(resourceId)} [${content.key}] → ${targetLocale}${progressHint}`,
+                    `正在请求 ${providerLabel}${modelHint} · ${shortResourceId(resourceId)} [${content.key}] → ${targetLocale} · 约 ${content.value.length} 字 · 「${textPreview(content.value)}」${progressHint}`,
+                    true,
                   );
 
                   const translatedValue = await translateText({
@@ -262,15 +270,20 @@ export async function processTranslationJob(jobId: string, shop: string) {
                     translatableContentDigest: content.digest,
                   });
 
+                  await reportActivity(
+                    `✓ ${providerLabel} 完成 [${content.key}] → ${targetLocale}${progressHint}`,
+                  );
+
                   await sleep(TRANSLATION_DELAY_MS);
                 } catch (error) {
                   failedItems += 1;
-                  const message =
-                    error instanceof Error ? error.message : String(error);
-                  await appendJobLog(
-                    jobId,
-                    `翻译失败 ${resourceId} [${content.key}] -> ${targetLocale}: ${message}`,
+                  const message = formatProviderError(
+                    providerLabel,
+                    error,
+                    `翻译失败 ${shortResourceId(resourceId)} [${content.key}] → ${targetLocale}`,
                   );
+                  await appendJobLog(jobId, message);
+                  await reportActivity(`✗ ${message}`, true);
                 }
               }
 
@@ -311,13 +324,17 @@ export async function processTranslationJob(jobId: string, shop: string) {
                   `已处理 ${pendingTranslations.length} 条待上传: ${resourceId} (${targetLocale})`,
                 );
               }
+
+              processedItems += sourceContent.length;
             } catch (error) {
-              const message =
-                error instanceof Error ? error.message : String(error);
-              await appendJobLog(
-                jobId,
-                `资源处理失败 ${resourceId} (${targetLocale}): ${message}`,
+              const message = formatProviderError(
+                providerLabel,
+                error,
+                `资源处理失败 ${shortResourceId(resourceId)} (${targetLocale})`,
               );
+              await appendJobLog(jobId, message);
+              await reportActivity(`✗ ${message}`, true);
+              processedItems += sourceContent.length;
             }
 
             await updateJobProgress(jobId, {

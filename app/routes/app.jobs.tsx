@@ -55,6 +55,32 @@ function isActivityLogLine(line: string) {
   return line.includes("[当前] ");
 }
 
+function stripLogTimestamp(line: string) {
+  return line.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*/, "");
+}
+
+function getLatestErrorLine(logs: string[]) {
+  for (let i = logs.length - 1; i >= 0; i--) {
+    const line = logs[i];
+    if (isActivityLogLine(line)) {
+      continue;
+    }
+    const plain = stripLogTimestamp(line);
+    if (
+      plain.includes("翻译失败") ||
+      plain.includes("API 错误") ||
+      plain.includes("请求超时") ||
+      plain.includes("网络连接失败") ||
+      plain.includes("资源处理失败") ||
+      plain.includes("任务失败") ||
+      plain.startsWith("✗")
+    ) {
+      return plain;
+    }
+  }
+  return null;
+}
+
 function statusLabel(status: string) {
   switch (status) {
     case "pending":
@@ -76,6 +102,11 @@ export default function JobsPage() {
   const revalidator = useRevalidator();
   const location = useLocation();
   const baseSearchParams = new URLSearchParams(location.search);
+  const latestError = selectedJob
+    ? getLatestErrorLine(selectedJob.logs)
+    : null;
+  const activityIsError =
+    selectedJob?.activityMessage?.startsWith("✗") ?? false;
 
   useEffect(() => {
     if (
@@ -142,10 +173,14 @@ export default function JobsPage() {
           {(selectedJob.status === "running" ||
             selectedJob.status === "pending") && (
             <>
+              <p className="progress-explainer">
+                按页从 Shopify 拉取资源并<strong>边扫描边翻译</strong>（不是先扫完全店再译）。
+                进度在整批字段译完并上传后才增加，上传阶段不会误显示 100%。
+              </p>
               {jobProgressPercent(selectedJob) != null && (
                 <div className="progress-block">
                   <div className="progress-label">
-                    扫描进度 {selectedJob.processedItems} /{" "}
+                    字段处理进度 {selectedJob.processedItems} /{" "}
                     {selectedJob.totalItems}（{jobProgressPercent(selectedJob)}%）
                   </div>
                   <div
@@ -165,12 +200,22 @@ export default function JobsPage() {
                 </div>
               )}
               {selectedJob.activityMessage && (
-                <div className="activity-banner">
-                  <strong>当前步骤</strong>
+                <div
+                  className={
+                    activityIsError ? "activity-banner activity-error" : "activity-banner"
+                  }
+                >
+                  <strong>{activityIsError ? "最近错误" : "当前步骤"}</strong>
                   <p>{selectedJob.activityMessage}</p>
                   <p className="activity-hint">
-                    页面每约 4 秒自动刷新；调用 OpenAI 时此处会显示正在翻译的资源与字段。
+                    页面每约 4 秒自动刷新。调用 AI 时会显示字段、字数与文本预览；超时
+                    （OpenAI 120 秒）或 API 错误会标 ✗ 并写入日志。
                   </p>
+                </div>
+              )}
+              {(selectedJob.failedItems > 0 || latestError) && (
+                <div className="banner-error">
+                  {latestError ?? "部分字段翻译失败，请查看下方日志"}
                 </div>
               )}
             </>

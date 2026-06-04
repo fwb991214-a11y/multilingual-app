@@ -44,7 +44,8 @@ const REGISTER_BATCH_SIZE = 25;
 const TRANSLATION_DELAY_MS = 120;
 const ACTIVITY_THROTTLE_MS = 2500;
 /** Vercel 单次调用上限 300s，提前切片并触发下一次独立调用。 */
-const CHUNK_TIME_BUDGET_MS = 4 * 60 * 1000;
+/** 略小于 Vercel 300s，且避免单次 OpenAI 堆积触发 504 */
+const CHUNK_TIME_BUDGET_MS = 3 * 60 * 1000;
 const DUPLICATE_RUN_GUARD_MS = 60 * 1000;
 /** 单条字段翻译最长等待；超时则跳过并记入日志（避免卡死在 body_html）。 */
 const FIELD_TRANSLATE_TIMEOUT_MS = 90 * 1000;
@@ -230,7 +231,7 @@ export async function processTranslationJob(
           `本批接近 Vercel 时限，已保存进度（已处理 ${processedResourceIds.size} 个资源），正在自动续跑…`,
         );
         await reportActivity(
-          `本批已满约 4 分钟，续跑下一批（已处理 ${processedResourceIds.size} 个资源）…`,
+          `本批已满约 3 分钟，续跑下一批（已处理 ${processedResourceIds.size} 个资源）…`,
           true,
         );
         const trigger = await triggerTranslationJobRun(

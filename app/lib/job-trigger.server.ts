@@ -21,21 +21,52 @@ export function normalizeAppOrigin(origin?: string | null) {
   return `https://${withoutTrailingSlash}`;
 }
 
-function collectOriginCandidates(requestOrigin?: string) {
-  const candidates = [
-    normalizeAppOrigin(requestOrigin),
+/** Vercel 预览部署域名；函数自己 fetch 自己时会触发 508 Infinite loop detected */
+export function isVercelPreviewDeploymentOrigin(origin: string) {
+  try {
+    const hostname = new URL(origin).hostname.toLowerCase();
+    return (
+      hostname.endsWith(".vercel.app") &&
+      (hostname.includes("-projects.vercel.app") ||
+        /^.+-[a-z0-9]+-[a-z0-9-]+-projects\.vercel\.app$/i.test(hostname))
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 内部续跑/触发必须用稳定生产域名（Partner 里配置的 App URL），
+ * 不能用当前请求的预览 URL（*.vercel.app 带 hash 的地址）。
+ */
+export function getStableTriggerOrigins(requestOrigin?: string) {
+  const stable = [
     normalizeAppOrigin(process.env.SHOPIFY_APP_URL),
     normalizeAppOrigin(process.env.VERCEL_PROJECT_PRODUCTION_URL),
-    normalizeAppOrigin(
-      process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "",
-    ),
   ].filter((value): value is string => Boolean(value));
 
-  return [...new Set(candidates)];
+  const unique = [...new Set(stable)];
+  if (unique.length > 0) {
+    return unique;
+  }
+
+  const request = normalizeAppOrigin(requestOrigin);
+  if (request && !isVercelPreviewDeploymentOrigin(request)) {
+    return [request];
+  }
+
+  const vercelUrl = normalizeAppOrigin(
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "",
+  );
+  if (vercelUrl && !isVercelPreviewDeploymentOrigin(vercelUrl)) {
+    return [vercelUrl];
+  }
+
+  return [];
 }
 
 export function resolveAppOrigin(requestOrigin?: string) {
-  const candidates = collectOriginCandidates(requestOrigin);
+  const candidates = getStableTriggerOrigins(requestOrigin);
   return candidates[0] ?? "";
 }
 
@@ -44,7 +75,6 @@ export type TriggerJobResult = { ok: true } | { ok: false; error: string };
 
 async function postRunEndpoint(
   origin: string,
-  pathname: string,
   secret: string,
   jobId: string,
   shop: string,
@@ -52,7 +82,7 @@ async function postRunEndpoint(
 ): Promise<TriggerJobResult> {
   let url: URL;
   try {
-    url = new URL(pathname, origin);
+    url = new URL("/api/translation/run", origin);
   } catch {
     return { ok: false, error: `无效的应用地址: ${origin}` };
   }
@@ -67,6 +97,7 @@ async function postRunEndpoint(
         "Content-Type": "application/json",
         Authorization: `Bearer ${secret}`,
         Accept: "application/json",
+        "x-internal-translation-job": "1",
       },
       body: JSON.stringify({ jobId, shop }),
     });
@@ -76,7 +107,7 @@ async function postRunEndpoint(
     const body = await response.text();
     return {
       ok: false,
-      error: `HTTP ${response.status} ${url.href}: ${body.slice(0, 160)}`,
+      error: `HTTP ${response.status} ${url.href}: ${body.slice(0, 200)}`,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -99,35 +130,38 @@ export async function triggerTranslationJobRun(
       return { ok: false, error };
     }
 
-    const origins = collectOriginCandidates(appOrigin);
+    const origins = getStableTriggerOrigins(appOrigin);
     if (origins.length === 0) {
       const error =
-        "无法解析应用 URL（请在 Vercel 设置 SHOPIFY_APP_URL，须为 https://你的域名）";
+        "无法解析应用 URL。请在 Vercel 设置 SHOPIFY_APP_URL=https://multilingual-app-six.vercel.app（不要用预览域名）";
       console.error(`[job-trigger] ${error}`);
       return { ok: false, error };
     }
 
-    const paths = ["/api/translation/run", "/api/translation/run.data"];
     const continuation = options?.continuation === true;
+    if (continuation) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+
     let lastError = "未知错误";
 
     for (const origin of origins) {
-      for (const pathname of paths) {
-        for (let attempt = 1; attempt <= 2; attempt++) {
-          const result = await postRunEndpoint(
-            origin,
-            pathname,
-            secret,
-            jobId,
-            shop,
-            continuation,
-          );
-          if (result.ok) {
-            return result;
-          }
-          lastError = result.error;
-          await new Promise((resolve) => setTimeout(resolve, 800 * attempt));
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const result = await postRunEndpoint(
+          origin,
+          secret,
+          jobId,
+          shop,
+          continuation,
+        );
+        if (result.ok) {
+          return result;
         }
+        lastError = result.error;
+        if (result.error.includes("508")) {
+          lastError = `${result.error}（Vercel 禁止函数反复调用自己；请确认 SHOPIFY_APP_URL 为正式域名，并用手动「继续本任务」）`;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
       }
     }
 

@@ -15,6 +15,8 @@ interface TranslateOptions {
   targetLocale: string;
   isHtml: boolean;
   settings: ShopSettingsRecord;
+  /** 单条字段翻译超时（毫秒），默认见 OPENAI_REQUEST_TIMEOUT_MS */
+  timeoutMs?: number;
 }
 
 function mockTranslate(text: string, targetLocale: string, isHtml: boolean) {
@@ -63,7 +65,7 @@ async function translateWithOpenAI(options: TranslateOptions) {
         ],
       }),
     },
-    OPENAI_REQUEST_TIMEOUT_MS,
+    options.timeoutMs ?? OPENAI_REQUEST_TIMEOUT_MS,
     `OpenAI (${model})`,
   );
 
@@ -128,7 +130,7 @@ async function translateWithDeepL(options: TranslateOptions) {
       },
       body,
     },
-    DEEPL_REQUEST_TIMEOUT_MS,
+    options.timeoutMs ?? DEEPL_REQUEST_TIMEOUT_MS,
     "DeepL",
   );
 

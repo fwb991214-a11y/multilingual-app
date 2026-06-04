@@ -83,8 +83,24 @@ export async function markStaleRunningJobs(shop: string) {
   });
 
   for (const job of runningJobs) {
-    // 进度条满只表示「已扫描」完，已译/跳过仍会继续增加；仅当长时间无更新才自动收尾
+    const hasResume = Boolean(job.resumeState?.trim());
+
+    if (hasResume && job.updatedAt < cutoff) {
+      await prisma.translationJob.update({
+        where: { id: job.id },
+        data: {
+          status: "failed",
+          errorMessage:
+            "自动续跑中断（可能未部署 resumeState 或内部 API 触发失败），请重新运行任务",
+          resumeState: null,
+        },
+      });
+      continue;
+    }
+
+    // 进度条满只表示「已扫描」完；有 resumeState 说明还有下一批，不能标为已完成
     if (
+      !hasResume &&
       job.totalItems > 0 &&
       job.processedItems >= job.totalItems &&
       job.updatedAt < cutoff

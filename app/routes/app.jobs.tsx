@@ -147,8 +147,11 @@ export default function JobsPage() {
                 </Link>
               </p>
               <p>
-                已译 {job.translatedItems} · 跳过 {job.skippedItems} · 失败{" "}
+                已译 {job.translatedItems} 字段 · 跳过 {job.skippedItems} · 失败{" "}
                 {job.failedItems}
+              </p>
+              <p className="job-hint">
+                「已译」是字段数（标题/描述等），不是商品件数；跳过含已有日文、过长或超时跳过。
               </p>
               {job.status === "running" && job.activityMessage && (
                 <p className="job-activity">{job.activityMessage}</p>
@@ -225,8 +228,11 @@ export default function JobsPage() {
             进度: {selectedJob.processedItems} / {selectedJob.totalItems || "?"}
           </p>
           <p>
-            已翻译 {selectedJob.translatedItems} · 跳过 {selectedJob.skippedItems}{" "}
-            · 失败 {selectedJob.failedItems}
+            已翻译 {selectedJob.translatedItems} 个字段 · 跳过{" "}
+            {selectedJob.skippedItems} · 失败 {selectedJob.failedItems}
+          </p>
+          <p className="job-hint">
+            若商品很多但这里数字很小，可能是只跑完一批或续跑失败；请查看日志是否有「自动续跑」或「过长/超时跳过」。
           </p>
           {selectedJob.errorMessage && (
             <div className="banner-error">{selectedJob.errorMessage}</div>

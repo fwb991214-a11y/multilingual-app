@@ -46,6 +46,16 @@ const ACTIVITY_THROTTLE_MS = 2500;
 /** Vercel 单次调用上限 300s，提前切片并触发下一次独立调用。 */
 const CHUNK_TIME_BUDGET_MS = 4 * 60 * 1000;
 const DUPLICATE_RUN_GUARD_MS = 60 * 1000;
+/** 单条字段翻译最长等待；超时则跳过并记入日志（避免卡死在 body_html）。 */
+const FIELD_TRANSLATE_TIMEOUT_MS = 90 * 1000;
+/** 超长 HTML（如含 iframe 的商品详情）直接跳过，避免 OpenAI 极慢或超时。 */
+const MAX_HTML_FIELD_CHARS = 5000;
+
+function isTimeoutLikeError(error: unknown) {
+  const message =
+    error instanceof Error ? error.message : String(error);
+  return message.includes("超时") || message.includes("AbortError");
+}
 
 function shortResourceId(resourceId: string) {
   const parts = resourceId.split("/");
@@ -199,21 +209,42 @@ export async function processTranslationJob(
     const shouldYieldChunk = () =>
       Date.now() - chunkStartedAt >= CHUNK_TIME_BUDGET_MS;
 
+    const processedResourceIds = new Set<string>();
+    if (resume?.processedResourceIds) {
+      for (const id of resume.processedResourceIds) {
+        processedResourceIds.add(id);
+      }
+    }
+
     const scheduleContinuation = async (
       state: TranslationJobResumeState,
     ) => {
-      await saveJobResumeState(jobId, state);
+      const stateWithResources: TranslationJobResumeState = {
+        ...state,
+        processedResourceIds: [...processedResourceIds],
+      };
+      await saveJobResumeState(jobId, stateWithResources);
       await appendJobLog(
         jobId,
-        "本批接近 Vercel 时限，已保存进度并自动续跑…",
+        `本批接近 Vercel 时限，已保存进度（已处理 ${processedResourceIds.size} 个资源），正在自动续跑…`,
       );
       await reportActivity(
-        "本批已跑满约 4 分钟，正在自动启动下一批独立任务…",
+        `本批已满约 4 分钟，续跑下一批（已处理 ${processedResourceIds.size} 个资源）…`,
         true,
       );
-      if (options?.appOrigin) {
-        triggerTranslationJobRun(options.appOrigin, jobId, shop, {
-          continuation: true,
+      const ok = await triggerTranslationJobRun(
+        options?.appOrigin ?? "",
+        jobId,
+        shop,
+        { continuation: true },
+      );
+      if (!ok) {
+        await appendJobLog(
+          jobId,
+          "自动续跑触发失败：请确认已部署最新代码，并重新点击「开始批量翻译」",
+        );
+        await updateJobProgress(jobId, {
+          errorMessage: "自动续跑失败，店内仅部分商品已处理，请重新运行任务",
         });
       }
     };
@@ -283,6 +314,7 @@ export async function processTranslationJob(
           }
 
           const resourceId = edge.node.resourceId;
+          processedResourceIds.add(resourceId);
           const sourceContent = edge.node.translatableContent.filter(
             (item) => item.locale === settings.sourceLocale,
           );
@@ -348,6 +380,17 @@ export async function processTranslationJob(
                   continue;
                 }
 
+                const isHtml = HTML_CONTENT_KEYS.has(content.key);
+                const charLen = content.value.length;
+
+                if (isHtml && charLen > MAX_HTML_FIELD_CHARS) {
+                  skippedItems += 1;
+                  const skipMsg = `过长跳过 ${shortResourceId(resourceId)} [${content.key}] → ${targetLocale}（${charLen} 字，上限 ${MAX_HTML_FIELD_CHARS}）`;
+                  await appendJobLog(jobId, skipMsg);
+                  await reportActivity(`⊘ ${skipMsg}`, true);
+                  continue;
+                }
+
                 try {
                   const doneSoFar = processedItems + fieldsHandledInBlock;
                   const progressHint =
@@ -356,7 +399,7 @@ export async function processTranslationJob(
                       : "";
 
                   await reportActivity(
-                    `正在请求 ${providerLabel}${modelHint} · ${shortResourceId(resourceId)} [${content.key}] → ${targetLocale} · 约 ${content.value.length} 字 · 「${textPreview(content.value)}」${progressHint}`,
+                    `正在请求 ${providerLabel}${modelHint} · ${shortResourceId(resourceId)} [${content.key}] → ${targetLocale} · 约 ${charLen} 字 · 「${textPreview(content.value)}」${progressHint}`,
                     true,
                   );
 
@@ -364,8 +407,9 @@ export async function processTranslationJob(
                     text: content.value,
                     sourceLocale: settings.sourceLocale,
                     targetLocale,
-                    isHtml: HTML_CONTENT_KEYS.has(content.key),
+                    isHtml,
                     settings,
+                    timeoutMs: FIELD_TRANSLATE_TIMEOUT_MS,
                   });
 
                   pendingTranslations.push({
@@ -381,6 +425,13 @@ export async function processTranslationJob(
 
                   await sleep(TRANSLATION_DELAY_MS);
                 } catch (error) {
+                  if (isTimeoutLikeError(error)) {
+                    skippedItems += 1;
+                    const skipMsg = `超时跳过 ${shortResourceId(resourceId)} [${content.key}] → ${targetLocale}（等待超过 ${FIELD_TRANSLATE_TIMEOUT_MS / 1000} 秒）`;
+                    await appendJobLog(jobId, skipMsg);
+                    await reportActivity(`⊘ ${skipMsg}`, true);
+                    continue;
+                  }
                   failedItems += 1;
                   const message = formatProviderError(
                     providerLabel,
@@ -468,7 +519,10 @@ export async function processTranslationJob(
       failedItems,
       resumeState: null,
     });
-    await appendJobLog(jobId, "任务完成");
+    await appendJobLog(
+      jobId,
+      `任务完成：共处理 ${processedResourceIds.size} 个资源（商品/页面等）；已译 ${translatedItems} 个字段，跳过 ${skippedItems} 个字段，失败 ${failedItems} 个字段`,
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await updateJobProgress(jobId, {

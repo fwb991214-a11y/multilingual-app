@@ -24,6 +24,8 @@ export interface TranslationJobResumeState {
   translatedItems: number;
   skippedItems: number;
   failedItems: number;
+  /** 已处理过的 Shopify 资源 ID（商品/页面等），用于统计，非字段数 */
+  processedResourceIds?: string[];
 }
 
 export const TRANSLATION_MODES: { value: TranslationMode; label: string }[] = [

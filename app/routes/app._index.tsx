@@ -80,7 +80,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const appOrigin = new URL(request.url).origin;
 
   if (process.env.VERCEL === "1" || process.env.VERCEL === "true") {
-    triggerTranslationJobRun(appOrigin, job.id, session.shop);
+    void triggerTranslationJobRun(appOrigin, job.id, session.shop);
   } else {
     startTranslationJob(job.id, session.shop);
   }

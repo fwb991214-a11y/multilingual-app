@@ -1,11 +1,6 @@
 {
   "framework": "react-router",
   "buildCommand": "npm run build",
-  "installCommand": "npm install",
-  "functions": {
-    "api/translation/run": {
-      "maxDuration": 300
-    }
-  }
+  "installCommand": "npm install"
 }
 
